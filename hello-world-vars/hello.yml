@@ -1,4 +1,4 @@
-- name: This is a hello-world example 
+- name: This is a hello-world example
   hosts: all
   vars_files:
     - variable_test.yml
@@ -8,5 +8,5 @@
       copy:
         content: "hello, {{test}}, on Ansible!"
         dest: ~/testfile.txt
-  become: true
-  become_method: sudo
+  #become: true
+  #become_method: sudo
