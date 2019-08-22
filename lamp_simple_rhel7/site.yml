@@ -5,7 +5,7 @@
   hosts: all
   vars_files:
     - lamp_vars.yml
-  remote_user: "{{common_user}}"
+  remote_user: "{{common_remote_user}}"
   roles:
     - common
 
