@@ -5,7 +5,7 @@
   hosts: all
   vars_files:
     - lamp_vars.yml
-  remote_user: {{common_user}}
+  remote_user: "{{common_user}}"
   roles:
     - common
 
@@ -13,7 +13,7 @@
   hosts: webservers
   vars_files:
     - lamp_vars.yml
-  remote_user: {{webservers_remote_user}}
+  remote_user: "{{webservers_remote_user}}"
 
   roles:
     - web
@@ -22,7 +22,7 @@
   hosts: dbservers
   vars_files:
     - lamp_vars.yml
-  remote_user: {{dbservers_remote_user}}
+  remote_user: "{{dbservers_remote_user}}"
 
   roles:
     - db
