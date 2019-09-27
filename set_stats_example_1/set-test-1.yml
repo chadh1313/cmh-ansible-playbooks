@@ -1,5 +1,5 @@
 - name: This is set-stats example
-  hosts: localhost
+  hosts: all
   tasks:
     - shell: echo "hello world" > ~/cmh-hello.txt
 
