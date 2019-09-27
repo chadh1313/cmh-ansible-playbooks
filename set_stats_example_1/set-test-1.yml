@@ -15,4 +15,4 @@
     
     - name: "Output test results"
       debug:
-        msg: "result is: {{ result }}"
+        msg: "result is: {{ result.stdout }}"
