@@ -1,0 +1,13 @@
+- name: This is set-stats example
+  hosts: localhost
+  tasks:
+    - shell: echo "hello world" > ~/cmh-hello.txt
+
+    - name: "try a simple local command"
+      local_action: 'shell pwd'
+      register: result
+
+    - name: "Set the result"
+      set_stats:
+        data:
+          my_dir_output:  "{{ result }}"

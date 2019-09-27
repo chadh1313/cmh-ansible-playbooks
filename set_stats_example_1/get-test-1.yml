@@ -1,0 +1,10 @@
+- name: This is get-stats example
+  hosts: localhost
+  tasks:
+    - name: "try a simple local command from input"
+      local_action: 'shell ls -al {{ my_dir_output }}'
+      register: result
+
+    - name: "Output test results"
+      debug:
+        msg: "{{ result }}"
