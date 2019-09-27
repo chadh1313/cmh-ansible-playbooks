@@ -12,7 +12,7 @@
       set_stats:
         data:
           my_dir_output:  "{{ result.stdout }}"
-          aggregate: no
+        aggregate: no
     
     - name: "Output test results"
       debug:
