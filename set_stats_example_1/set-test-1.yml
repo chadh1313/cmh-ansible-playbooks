@@ -15,4 +15,4 @@
     
     - name: "Output test results"
       debug:
-        msg: "my_dir_output is: {{ my_dir_output }}"
+        msg: "result is: {{ result }}"
