@@ -11,7 +11,7 @@
     - name: "Set the result"
       set_stats:
         data:
-          my_dir_output:  "{{ result }}"
+          my_dir_output:  "{{ result.stdout }}"
     
     - name: "Output test results"
       debug:
