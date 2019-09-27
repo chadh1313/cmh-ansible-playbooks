@@ -1,5 +1,6 @@
 - name: This is set-stats example
   hosts: all
+  remote_user: centos
   tasks:
     - shell: echo "hello world" > ~/cmh-hello.txt
 
