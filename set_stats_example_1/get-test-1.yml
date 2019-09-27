@@ -3,9 +3,9 @@
   remote_user: centos
   tasks:
     - name: "try a simple local command from input"
-      local_action: 'shell ls -al {{ my_dir_output }}.stdout'
+      local_action: 'shell ls -al {{ lookup('my_dir_output', 'stdout') }}'
       register: result
 
     - name: "Output test results"
       debug:
-        msg: "{{ result.stdout }}"
+        msg: "{{ lookup('my_dir_output', 'stdout') }}"
