@@ -8,4 +8,4 @@
 
     - name: "Output test results"
       debug:
-        msg: "{{ my_dir_output }}"
+        msg: "dir contents are: {{ result.stdout }}"
