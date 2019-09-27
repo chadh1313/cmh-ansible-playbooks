@@ -12,3 +12,7 @@
       set_stats:
         data:
           my_dir_output:  "{{ result }}"
+    
+    - name: "Output test results"
+      debug:
+        msg: "my_dir_output is: {{ my_dir_output }}"
