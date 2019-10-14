@@ -1,0 +1,13 @@
+---
+- name: install chocolatey packages
+ hosts: all
+ vars:
+ - ansible_connection: winrm
+ - ansible_winrm_transport: basic
+ - ansible_winrm_server_cert_validation: ignore
+ - choco_packages: firefox
+ tasks:
+ - name: install Software package
+   win_chocolatey:
+     name: "{{ choco_packages }}"
+     state: present
