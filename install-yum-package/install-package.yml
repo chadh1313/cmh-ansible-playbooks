@@ -1,0 +1,8 @@
+- name: Install Package
+  hosts: all
+  vars: 
+    package: from_playbook
+
+  tasks:
+  - name: Install package
+    yum: name={{ package }} state=present
