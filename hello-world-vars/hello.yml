@@ -1,6 +1,6 @@
 - name: This is a hello-world example
   hosts: all
-  remote_user: centos
+  remote_user: "{{remote_user}}"
   vars_files:
     - variable_test.yml
 
