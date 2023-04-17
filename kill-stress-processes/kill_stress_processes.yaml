@@ -1,0 +1,13 @@
+- name: Kill running stress processes
+  hosts: all
+  tasks:
+  - name: Kill stress - Ubuntu 
+    shell:
+       "killall stress"
+    when: ansible_facts['os_family']=="Ubuntu"
+  - name: Kill stress - RedHat
+    shell:
+       "killall stress-ng"
+    when: ansible_facts['os_family']=="RedHat"
+  - debug:
+       msg: "Killed all running stress processes"
