@@ -6,7 +6,7 @@
     register: lscpu
   - name: Print lscpu
     debug:
-      msg: "{{ lscpu.stdout }}"
+      msg: "{{ lscpu.stdout_lines }}"
 
   - name: Get detailed CPU statistics
     shell: mpstat -P ALL 1 5
@@ -14,7 +14,7 @@
     when: ansible_facts['os_family'] == 'RedHat' or ansible_facts['os_family'] == 'Debian'
   - name: Print detailed CPU statistics
     debug:
-      msg: "{{detailed_cpu_stats.stdout}}"
+      msg: "{{detailed_cpu_stats.stdout_lines}}"
 
   - name: List processes
     shell: "top -b -n 1 -o %CPU | head -20"
