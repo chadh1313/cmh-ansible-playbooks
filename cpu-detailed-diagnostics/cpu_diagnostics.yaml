@@ -1,0 +1,24 @@
+- name: List processes by CPU usage
+  hosts: all
+  tasks:
+  - name: Get CPU arch details
+      shell: lscpu
+      register: lscpu
+  - name: Print lscpu
+      debug:
+        msg: "{{ lscpu.stdout }}"
+
+  - name: Get detailed CPU statistics
+      ansible.builtin.shell: mpstat -P ALL 1 5
+      register: detailed_cpu_stats
+      when: ansible_facts['os_family'] == 'RedHat' or ansible_facts['os_family'] == 'Debian'
+  - name: Print detailed CPU statistics
+      debug:
+       msg: "{{detailed_cpu_stats.stdout}}"
+
+  - name: List processes
+    shell:
+       "top -b -n 1 -o %CPU | head -20"
+    register: process_info
+  - debug:
+       msg: "{{process_info.stdout_lines}}"
