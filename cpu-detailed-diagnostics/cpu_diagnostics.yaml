@@ -1,4 +1,4 @@
-- name: List processes by CPU usage
+- name: Detailed CPU diagnostics
   hosts: all
   tasks:
   - name: Get CPU arch details
