@@ -1,0 +1,18 @@
+- name: Remediate - Inspect the condition status of each Pod
+  hosts: all
+  tasks:
+    - name: Get all pods
+      command: kubectl get pods -A
+      register: all_pods
+
+    - name: Inspect the condition status of each Pod
+      command: kubectl describe pod {{ item.metadata.name }}
+      loop: "{{ all_pods.stdout | from_json | json_query('items[*]') }}"
+      register: pod_description
+      failed_when: "'Ready' not in pod_description.stdout"
+
+    - name: Delete the corresponding pod
+      command: kubectl delete pod {{ item.metadata.name }}
+      loop: "{{ all_pods.stdout | from_json | json_query('items[*]') }}"
+      when: "'Ready' not in pod_description.stdout"
+```
