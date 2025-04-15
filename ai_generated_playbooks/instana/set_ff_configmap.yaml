@@ -1,0 +1,15 @@
+- name: Disable advserviceHighCpu feature flag
+  hosts: all
+  tasks:
+    - name: Get the current configmap
+      command: "kubectl get cm -n {{ namespace }} {{ configmap_name }} -o yaml"
+      register: cm_output
+
+    - name: Set the feature flag to false
+      set_fact:
+        cm_yaml: "{{ cm_output.stdout | from_yaml | combine({ 'data': { 'advserviceHighCpu': 'false' } }, recursive=True) }}"
+
+    - name: Apply the updated configmap
+      command: "kubectl apply -n {{ namespace }} -f -"
+      args:
+        stdin: "{{ cm_yaml | to_nice_yaml }}"
