@@ -1,0 +1,7 @@
+- name: Disable advserviceHighCpu feature flag
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Update the advserviceHighCpu feature flag in the configmap
+      command: "kubectl edit configmap -n {{ namespace }} {{ configmap_name }} --type='json' -p='{.data.flags.advserviceHighCpu=\"false\"}'"
