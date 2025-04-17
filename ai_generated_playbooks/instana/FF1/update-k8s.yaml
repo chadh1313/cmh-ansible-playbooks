@@ -1,8 +1,16 @@
 - name: patch configmap to set adservicecpuhigh feature flag to false
   hosts: all
   tasks:
+    - name: Obtain access token
+      k8s_auth:
+        host: "https://api.b-robot-shop-demo.cp.fyre.ibm.com:6443"
+        validate_certs: no
+        username: "kubeadmin"
+        password: "{{k8s_password}}"
+      register: k8s_auth_results
     - name: patch configmap to set adservicecpuhigh feature flag to false
       k8s:
+        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         state: present
         definition:
           kind: ConfigMap
@@ -13,6 +21,7 @@
             adservicecpuhigh: "false"
     - name: verify the value of adservicecpuhigh feature flag
       k8s_info:
+        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         kind: ConfigMap
         name: feature-flags
         namespace: default
