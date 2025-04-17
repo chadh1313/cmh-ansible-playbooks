@@ -30,4 +30,4 @@
 
     - name: Display the value of adservicecpuhigh feature flag
       debug:
-        msg: "adservicecpuhigh feature flag value is {{ configmap_info.data.advserviceHighCpu }}"
+        msg: "adservicecpuhigh feature flag value is {{ configmap_info.resources[0].data.advserviceHighCpu }}"
