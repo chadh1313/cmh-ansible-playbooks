@@ -1,8 +1,16 @@
 - name: Update advserviceHighCpu flag to false in ConfigMap using k8s modules and extra_vars for namespace and configmap name
   hosts: all
   tasks:
+    - name: Obtain access token
+      k8s_auth:
+        host: "{{ k8s_api_server }}"
+        validate_certs: no
+        username: "{{ k8s_user }}"
+        password: "{{ k8s_password }}"
+      register: k8s_auth_results
     - name: Update advserviceHighCpu flag to false in ConfigMap
       k8s:
+        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         state: present
         namespace: "{{ namespace }}"
         name: "{{ configmap_name }}"
@@ -12,6 +20,7 @@
 
     - name: Verify the value of adservicecpuhigh feature flag
       k8s_info:
+        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         kind: ConfigMap
         namespace: "{{ namespace }}"
         name: "{{ configmap_name }}"
