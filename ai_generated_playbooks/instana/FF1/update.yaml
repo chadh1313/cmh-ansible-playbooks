@@ -1,6 +1,6 @@
 ---
 - name: Update a ConfigMap value in Kubernetes
-  hosts: localhost
+  hosts: all
   gather_facts: no
   tasks:
     - name: Update ConfigMap value to false
