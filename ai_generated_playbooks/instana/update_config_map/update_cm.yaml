@@ -15,8 +15,8 @@
         definition:
           kind: ConfigMap
           metadata:
-            name: {{ configmap_name }}
-            namespace: {{ namespace }}
+            name: "{{ configmap_name }}"
+            namespace: "{{ namespace }}"
           data:
             advserviceHighCpu: "false"
 
