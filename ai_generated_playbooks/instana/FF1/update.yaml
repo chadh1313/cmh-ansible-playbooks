@@ -1,20 +1,17 @@
-- name: Disable advserviceHighCpu feature flag
-  hosts: all
-  become: true
-
+---
+- name: Update a ConfigMap value in Kubernetes
+  hosts: localhost
+  gather_facts: no
   tasks:
-    - name: Edit the ConfigMap to disable advserviceHighCpu
-      command: kubectl edit configmap {{ configmap_name }} -n {{ namespace }}
-      args:
-        stdin: |
-          data:
-            advserviceHighCpu: "false"
+    - name: Update ConfigMap value to false
+      ansible.builtin.command: >
+        kubectl patch configmap {{ configmap_name }}
+        -n {{ namespace }}
+        --type merge
+        -p '{"data": {"{{ key_name }}": "false"}}'
+      register: patch_result
 
-    - name: Verify the flag value has been updated
-      command: kubectl get configmap {{ configmap_name }} -n {{ namespace }} -o jsonpath='{.data.advserviceHighCpu}'
-      register: flag_value
+    - name: Show patch result
+      ansible.builtin.debug:
+        var: patch_result.stdout
 
-    - name: Display the updated flag value
-      debug:
-        msg: "advserviceHighCpu flag value is {{ flag_value.stdout }}"
-      when: flag_value.stdout == "false"
