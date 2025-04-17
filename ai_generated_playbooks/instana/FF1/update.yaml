@@ -1,0 +1,20 @@
+- name: Disable advserviceHighCpu feature flag
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Edit the ConfigMap to disable advserviceHighCpu
+      command: kubectl edit configmap <configmap_name> -n <namespace>
+      args:
+        stdin: |
+          data:
+            advserviceHighCpu: "false"
+
+    - name: Verify the flag value has been updated
+      command: kubectl get configmap <configmap_name> -n <namespace> -o jsonpath='{.data.advserviceHighCpu}'
+      register: flag_value
+
+    - name: Display the updated flag value
+      debug:
+        msg: "advserviceHighCpu flag value is {{ flag_value.stdout }}"
+      when: flag_value.stdout == "false"
