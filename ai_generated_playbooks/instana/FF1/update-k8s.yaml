@@ -1,0 +1,23 @@
+- name: patch configmap to set adservicecpuhigh feature flag to false
+  hosts: all
+  tasks:
+    - name: patch configmap to set adservicecpuhigh feature flag to false
+      k8s:
+        state: present
+        definition:
+          kind: ConfigMap
+          metadata:
+            name: feature-flags
+            namespace: default
+          data:
+            adservicecpuhigh: "false"
+    - name: verify the value of adservicecpuhigh feature flag
+      k8s_info:
+        kind: ConfigMap
+        name: feature-flags
+        namespace: default
+      register: cm_info
+    - name: verify the value of adservicecpuhigh feature flag
+      assert:
+        that:
+          - cm_info.resources[0].data.adservicecpuhigh == "false"
