@@ -1,0 +1,22 @@
+- name: Update advserviceHighCpu flag to false in ConfigMap using k8s modules and extra_vars for namespace and configmap name
+  hosts: all
+  tasks:
+    - name: Update advserviceHighCpu flag to false in ConfigMap
+      k8s:
+        state: present
+        namespace: "{{ namespace }}"
+        name: "{{ configmap_name }}"
+        resource_definition:
+          data:
+            advserviceHighCpu: "false"
+
+    - name: Verify the value of adservicecpuhigh feature flag
+      k8s_info:
+        kind: ConfigMap
+        namespace: "{{ namespace }}"
+        name: "{{ configmap_name }}"
+      register: configmap_info
+
+    - name: Display the value of adservicecpuhigh feature flag
+      debug:
+        msg: "adservicecpuhigh feature flag value is {{ configmap_info.resources[0].data.advserviceHighCpu }}"
