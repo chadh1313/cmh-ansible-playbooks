@@ -8,17 +8,19 @@
         username: "{{ k8s_user }}"
         password: "{{ k8s_password }}"
       register: k8s_auth_results
-    - name: Update advserviceHighCpu flag to false in ConfigMap
+    - name: patch configmap to set advserviceHighCpu feature flag to false
       k8s:
         api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         state: present
-        namespace: "{{ namespace }}"
-        name: "{{ configmap_name }}"
-        resource_definition:
+        definition:
+          kind: ConfigMap
+          metadata:
+            name: {{ configmap_name }}
+            namespace: {{ namespace }}
           data:
             advserviceHighCpu: "false"
 
-    - name: Verify the value of adservicecpuhigh feature flag
+    - name: Verify the value of advserviceHighCpu feature flag
       k8s_info:
         api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         kind: ConfigMap
@@ -28,4 +30,4 @@
 
     - name: Display the value of adservicecpuhigh feature flag
       debug:
-        msg: "adservicecpuhigh feature flag value is {{ configmap_info.resources[0].data.advserviceHighCpu }}"
+        msg: "adservicecpuhigh feature flag value is {{ configmap_info.data.advserviceHighCpu }}"
