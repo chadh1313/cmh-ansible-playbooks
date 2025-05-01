@@ -8,21 +8,21 @@
         username: "{{ k8s_user }}"
         password: "{{ k8s_password }}"
       register: k8s_auth_results
-#    - name: patch configmap to set advserviceHighCpu feature flag to false
-#      k8s:
-#        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
-#        state: present
-#        definition:
-#          kind: ConfigMap
-#          metadata:
-#            name: "{{ configmap_name }}"
-#            namespace: "{{ namespace }}"
-#          data:
-#            advserviceHighCpu: "false"
+    - name: patch configmap to set advserviceHighCpu feature flag to false
+      k8s:
+        api_key: "{{k8s_auth_results.k8s_auth.api_key}}"
+        state: present
+        definition:
+          kind: ConfigMap
+          metadata:
+            name: "{{ configmap_name }}"
+            namespace: "{{ namespace }}"
+          data:
+            advserviceHighCpu: "false"
 
-    - name: Display the value of token
-      debug:
-        msg: "token is {{ k8s_auth_results.k8s_auth.api_key }}"
+#    - name: Display the value of token
+#      debug:
+#        msg: "token is {{ k8s_auth_results.k8s_auth.api_key }}"
 
     - name: Verify the value of advserviceHighCpu feature flag
       k8s_info:
