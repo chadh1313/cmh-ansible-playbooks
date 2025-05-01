@@ -11,7 +11,7 @@
       
     - name: patch configmap to set advserviceHighCpu feature flag to false
       k8s:
-        api_key: "{{k8s_auth_results.k8s_auth.api_key}}"
+        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
         state: present
         definition:
           kind: ConfigMap
