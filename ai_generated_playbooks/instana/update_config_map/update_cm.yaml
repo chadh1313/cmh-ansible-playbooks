@@ -20,14 +20,14 @@
 #          data:
 #            advserviceHighCpu: "false"
 
-#    - name: Verify the value of advserviceHighCpu feature flag
-#      k8s_info:
-#        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
-#        kind: ConfigMap
-#        namespace: "{{ namespace }}"
-#        name: "{{ configmap_name }}"
-#      register: configmap_info
+    - name: Verify the value of advserviceHighCpu feature flag
+      k8s_info:
+        api_key: "{{ k8s_auth_results.k8s_auth.api_key }}"
+        kind: ConfigMap
+        namespace: "{{ namespace }}"
+        name: "{{ configmap_name }}"
+      register: configmap_info
 
-#    - name: Display the value of adservicecpuhigh feature flag
-#      debug:
-#        msg: "adservicecpuhigh feature flag value is {{ configmap_info.resources[0].data.advserviceHighCpu }}"
+    - name: Display the value of adservicecpuhigh feature flag
+      debug:
+        msg: "adservicecpuhigh feature flag value is {{ configmap_info.resources[0].data.advserviceHighCpu }}"
