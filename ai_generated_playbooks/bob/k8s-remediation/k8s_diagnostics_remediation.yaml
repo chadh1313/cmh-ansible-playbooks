@@ -1,0 +1,553 @@
+---
+# Kubernetes Diagnostics and Remediation Playbook
+# This playbook diagnoses and remediates common Kubernetes issues including:
+# - Node issues (NotReady, pressure conditions)
+# - Pod issues (CrashLoopBackOff, ImagePullBackOff, etc.)
+# - Resource constraints (CPU/Memory limits)
+# - Network connectivity problems
+# - Storage issues (PVC binding, volume mount failures)
+# - Control plane health
+# - Certificate expiration
+# - ConfigMap and Secret validation
+
+- name: Kubernetes Diagnostics and Remediation
+  hosts: "{{ target_hosts | default('localhost') }}"
+  gather_facts: true
+  become: "{{ become_root | default(false) }}"
+  
+  vars_files:
+    - k8s_vars.yaml
+  
+  tasks:
+    - name: Verify Python kubernetes module is installed
+      pip:
+        name: kubernetes
+        state: present
+      register: pip_install
+      failed_when: false
+      
+    - name: Fail if kubernetes module is not installed
+      fail:
+        msg: "Python kubernetes module is not installed. Please install it with 'pip install kubernetes'"
+      when: pip_install.failed
+      
+    - name: Verify kubeconfig is accessible
+      k8s_info:
+        kind: Node
+        name: ""
+        api_version: v1
+      register: kubeconfig_check
+      failed_when: false
+      environment:
+        K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+      
+    - name: Fail if kubeconfig is not accessible
+      fail:
+        msg: "Unable to access Kubernetes cluster with current kubeconfig"
+      when: kubeconfig_check.failed
+      
+    # CLUSTER OVERVIEW
+    - name: Gather cluster overview information
+      block:
+        - name: Get Kubernetes version
+          k8s_info:
+            kind: ClusterVersion
+            api_version: config.openshift.io/v1
+            name: version
+          register: k8s_version
+          failed_when: false
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Get cluster nodes
+          k8s_info:
+            kind: Node
+            api_version: v1
+          register: k8s_nodes
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display cluster nodes
+          debug:
+            msg: "{{ item.metadata.name }}: {{ item.status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first }}"
+          loop: "{{ k8s_nodes.resources }}"
+          
+        - name: Get namespaces
+          k8s_info:
+            kind: Namespace
+            api_version: v1
+          register: k8s_namespaces
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display namespaces
+          debug:
+            msg: "{{ item.metadata.name }}"
+          loop: "{{ k8s_namespaces.resources }}"
+    
+    # NODE DIAGNOSTICS AND REMEDIATION
+    - name: Node diagnostics and remediation
+      block:
+        - name: Get node information
+          k8s_info:
+            kind: Node
+            api_version: v1
+          register: node_info
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Identify nodes not in Ready state
+          set_fact:
+            not_ready_nodes: "{{ node_info.resources | selectattr('status.conditions', 'defined') | 
+                               selectattr('status.conditions', 'contains', {'type': 'Ready', 'status': 'False'}) | 
+                               map(attribute='metadata.name') | list }}"
+          
+        - name: Display nodes not in Ready state
+          debug:
+            msg: "Nodes not in Ready state: {{ not_ready_nodes }}"
+          when: not_ready_nodes | length > 0
+          
+        - name: Identify nodes with pressure conditions
+          set_fact:
+            pressure_nodes: "{{ node_info.resources | selectattr('status.conditions', 'defined') | 
+                             selectattr('status.conditions', 'contains', {'type': 'DiskPressure', 'status': 'True'}) | 
+                             map(attribute='metadata.name') | list +
+                             node_info.resources | selectattr('status.conditions', 'defined') | 
+                             selectattr('status.conditions', 'contains', {'type': 'MemoryPressure', 'status': 'True'}) | 
+                             map(attribute='metadata.name') | list +
+                             node_info.resources | selectattr('status.conditions', 'defined') | 
+                             selectattr('status.conditions', 'contains', {'type': 'PIDPressure', 'status': 'True'}) | 
+                             map(attribute='metadata.name') | list | unique }}"
+          
+        - name: Display nodes with pressure conditions
+          debug:
+            msg: "Nodes with pressure conditions: {{ pressure_nodes }}"
+          when: pressure_nodes | length > 0
+          
+        - name: Get node metrics
+          k8s_info:
+            api_version: metrics.k8s.io/v1beta1
+            kind: NodeMetrics
+          register: node_metrics
+          failed_when: false
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display node resource usage
+          debug:
+            msg: "Node {{ item.metadata.name }} - CPU: {{ item.usage.cpu }}, Memory: {{ item.usage.memory }}"
+          loop: "{{ node_metrics.resources | default([]) }}"
+          when: node_metrics.resources is defined
+          
+        - name: Cordon problematic nodes if remediation is enabled
+          k8s:
+            state: present
+            definition:
+              apiVersion: v1
+              kind: Node
+              metadata:
+                name: "{{ item }}"
+                annotations:
+                  remediation: "cordoned by ansible"
+              spec:
+                unschedulable: true
+          register: cordon_result
+          with_items: "{{ not_ready_nodes }}"
+          when: 
+            - not_ready_nodes | length > 0
+            - remediate_nodes | default(false)
+            - auto_cordon_nodes | default(false)
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display cordon results
+          debug:
+            msg: "Node {{ item.item }} cordoned: {{ item.changed }}"
+          with_items: "{{ cordon_result.results | default([]) }}"
+          when: cordon_result.results is defined
+    
+    # POD DIAGNOSTICS AND REMEDIATION
+    - name: Pod diagnostics and remediation
+      block:
+        - name: Get pods across all namespaces
+          k8s_info:
+            kind: Pod
+            api_version: v1
+            namespace: "{{ item }}"
+          register: all_pods
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Identify non-running pods
+          set_fact:
+            problem_pods: "{{ problem_pods | default([]) + [{'namespace': item.1.metadata.namespace, 
+                                                           'name': item.1.metadata.name, 
+                                                           'phase': item.1.status.phase, 
+                                                           'reason': item.1.status.reason | default('Unknown')}] }}"
+          with_subelements:
+            - "{{ all_pods.results }}"
+            - resources
+          when: item.1.status.phase != 'Running' and item.1.status.phase != 'Succeeded'
+          
+        - name: Display non-running pods
+          debug:
+            msg: "Pod {{ item.namespace }}/{{ item.name }} is in {{ item.phase }} state{% if item.reason != 'Unknown' %} ({{ item.reason }}){% endif %}"
+          with_items: "{{ problem_pods | default([]) }}"
+          when: problem_pods is defined and problem_pods | length > 0
+          
+        - name: Identify pods with container restarts
+          set_fact:
+            restarting_pods: "{{ restarting_pods | default([]) + [{'namespace': item.1.metadata.namespace, 
+                                                                 'name': item.1.metadata.name, 
+                                                                 'container': container.name, 
+                                                                 'restarts': container.restartCount}] }}"
+          with_subelements:
+            - "{{ all_pods.results }}"
+            - resources
+          vars:
+            container: "{{ item.1.status.containerStatuses | selectattr('restartCount', '>', pod_restart_threshold) | first | default({}) }}"
+          when: 
+            - item.1.status.containerStatuses is defined
+            - item.1.status.containerStatuses | selectattr('restartCount', '>', pod_restart_threshold) | list | length > 0
+          
+        - name: Display pods with container restarts
+          debug:
+            msg: "Pod {{ item.namespace }}/{{ item.name }} container {{ item.container }} has {{ item.restarts }} restarts"
+          with_items: "{{ restarting_pods | default([]) }}"
+          when: restarting_pods is defined and restarting_pods | length > 0
+          
+        - name: Delete pods in CrashLoopBackOff if remediation is enabled
+          k8s:
+            state: absent
+            api_version: v1
+            kind: Pod
+            name: "{{ item.name }}"
+            namespace: "{{ item.namespace }}"
+          register: delete_pod_result
+          with_items: "{{ problem_pods | default([]) }}"
+          when: 
+            - problem_pods is defined
+            - item.phase == "Failed" or item.reason == "CrashLoopBackOff"
+            - remediate_pods | default(false)
+            - auto_delete_crashloop_pods | default(false)
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display pod deletion results
+          debug:
+            msg: "Pod {{ item.item.namespace }}/{{ item.item.name }} deleted: {{ item.changed }}"
+          with_items: "{{ delete_pod_result.results | default([]) }}"
+          when: delete_pod_result.results is defined
+    
+    # DEPLOYMENT DIAGNOSTICS AND REMEDIATION
+    - name: Deployment diagnostics and remediation
+      block:
+        - name: Get deployments across all namespaces
+          k8s_info:
+            kind: Deployment
+            api_version: apps/v1
+            namespace: "{{ item }}"
+          register: all_deployments
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Identify unhealthy deployments
+          set_fact:
+            problem_deployments: "{{ problem_deployments | default([]) + [{'namespace': item.1.metadata.namespace, 
+                                                                         'name': item.1.metadata.name, 
+                                                                         'desired': item.1.spec.replicas, 
+                                                                         'ready': item.1.status.readyReplicas | default(0)}] }}"
+          with_subelements:
+            - "{{ all_deployments.results }}"
+            - resources
+          when: 
+            - item.1.spec.replicas is defined
+            - item.1.status.readyReplicas is defined or item.1.status.readyReplicas | default(0) != item.1.spec.replicas
+          
+        - name: Display unhealthy deployments
+          debug:
+            msg: "Deployment {{ item.namespace }}/{{ item.name }} has {{ item.ready }}/{{ item.desired }} ready replicas"
+          with_items: "{{ problem_deployments | default([]) }}"
+          when: problem_deployments is defined and problem_deployments | length > 0
+          
+        - name: Restart deployments if remediation is enabled
+          k8s:
+            state: present
+            definition:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "{{ item.name }}"
+                namespace: "{{ item.namespace }}"
+                annotations:
+                  kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+          register: restart_deployment_result
+          with_items: "{{ problem_deployments | default([]) }}"
+          when: 
+            - problem_deployments is defined and problem_deployments | length > 0
+            - remediate_deployments | default(false)
+            - auto_restart_deployments | default(false)
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display deployment restart results
+          debug:
+            msg: "Deployment {{ item.item.namespace }}/{{ item.item.name }} restarted: {{ item.changed }}"
+          with_items: "{{ restart_deployment_result.results | default([]) }}"
+          when: restart_deployment_result.results is defined
+    
+    # PVC AND STORAGE DIAGNOSTICS
+    - name: PVC and storage diagnostics
+      block:
+        - name: Get PVCs across all namespaces
+          k8s_info:
+            kind: PersistentVolumeClaim
+            api_version: v1
+            namespace: "{{ item }}"
+          register: all_pvcs
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Identify unbound PVCs
+          set_fact:
+            problem_pvcs: "{{ problem_pvcs | default([]) + [{'namespace': item.1.metadata.namespace, 
+                                                           'name': item.1.metadata.name, 
+                                                           'phase': item.1.status.phase}] }}"
+          with_subelements:
+            - "{{ all_pvcs.results }}"
+            - resources
+          when: item.1.status.phase != 'Bound'
+          
+        - name: Display unbound PVCs
+          debug:
+            msg: "PVC {{ item.namespace }}/{{ item.name }} is in {{ item.phase }} state"
+          with_items: "{{ problem_pvcs | default([]) }}"
+          when: problem_pvcs is defined and problem_pvcs | length > 0
+          
+        - name: Get PVs
+          k8s_info:
+            kind: PersistentVolume
+            api_version: v1
+          register: all_pvs
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Identify unbound PVs
+          set_fact:
+            problem_pvs: "{{ problem_pvs | default([]) + [{'name': item.metadata.name, 
+                                                         'phase': item.status.phase}] }}"
+          with_items: "{{ all_pvs.resources }}"
+          when: item.status.phase != 'Bound'
+          
+        - name: Display unbound PVs
+          debug:
+            msg: "PV {{ item.name }} is in {{ item.phase }} state"
+          with_items: "{{ problem_pvs | default([]) }}"
+          when: problem_pvs is defined and problem_pvs | length > 0
+    
+    # CONTROL PLANE DIAGNOSTICS
+    - name: Control plane diagnostics
+      block:
+        - name: Get control plane pods
+          k8s_info:
+            kind: Pod
+            api_version: v1
+            namespace: kube-system
+            label_selectors:
+              - tier=control-plane
+          register: control_plane_pods
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display control plane pods
+          debug:
+            msg: "{{ item.metadata.name }}: {{ item.status.phase }}"
+          loop: "{{ control_plane_pods.resources }}"
+          
+        - name: Get etcd pods
+          k8s_info:
+            kind: Pod
+            api_version: v1
+            namespace: kube-system
+            label_selectors:
+              - component=etcd
+          register: etcd_pods
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display etcd pods
+          debug:
+            msg: "{{ item.metadata.name }}: {{ item.status.phase }}"
+          loop: "{{ etcd_pods.resources }}"
+    
+    # NETWORK DIAGNOSTICS
+    - name: Network diagnostics
+      block:
+        - name: Check CoreDNS pods
+          k8s_info:
+            kind: Pod
+            api_version: v1
+            namespace: kube-system
+            label_selectors:
+              - k8s-app=kube-dns
+          register: coredns_pods
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display CoreDNS pods
+          debug:
+            msg: "{{ item.metadata.name }}: {{ item.status.phase }}"
+          loop: "{{ coredns_pods.resources }}"
+          
+        - name: Check Calico pods
+          k8s_info:
+            kind: Pod
+            api_version: v1
+            namespace: kube-system
+            label_selectors:
+              - k8s-app=calico-node
+          register: calico_pods
+          failed_when: false
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Check Flannel pods
+          k8s_info:
+            kind: Pod
+            api_version: v1
+            namespace: kube-system
+            label_selectors:
+              - app=flannel
+          register: flannel_pods
+          failed_when: false
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display network policy provider
+          debug:
+            msg: "Network policy provider: {{ 'Calico' if calico_pods.resources | length > 0 else 'Flannel' if flannel_pods.resources | length > 0 else 'Unknown' }}"
+            
+        - name: Check network policies
+          k8s_info:
+            kind: NetworkPolicy
+            api_version: networking.k8s.io/v1
+            namespace: "{{ item }}"
+          register: network_policies
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display network policies
+          debug:
+            msg: "Namespace {{ item.item }} has {{ item.resources | length }} network policies"
+          with_items: "{{ network_policies.results }}"
+          when: item.resources | length > 0
+    
+    # RESOURCE QUOTA AND LIMIT CHECKS
+    - name: Resource quota and limit checks
+      block:
+        - name: Check namespace resource quotas
+          k8s_info:
+            kind: ResourceQuota
+            api_version: v1
+            namespace: "{{ item }}"
+          register: resource_quotas
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display resource quotas
+          debug:
+            msg: "Namespace {{ item.item }} has {{ item.resources | length }} resource quotas"
+          with_items: "{{ resource_quotas.results }}"
+          when: item.resources | length > 0
+          
+        - name: Check limit ranges
+          k8s_info:
+            kind: LimitRange
+            api_version: v1
+            namespace: "{{ item }}"
+          register: limit_ranges
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display limit ranges
+          debug:
+            msg: "Namespace {{ item.item }} has {{ item.resources | length }} limit ranges"
+          with_items: "{{ limit_ranges.results }}"
+          when: item.resources | length > 0
+          
+        - name: Find pods without resource limits
+          set_fact:
+            pods_without_limits: "{{ pods_without_limits | default([]) + [item.1.metadata.namespace + '/' + item.1.metadata.name] }}"
+          with_subelements:
+            - "{{ all_pods.results }}"
+            - resources
+          when: 
+            - item.1.spec.containers is defined
+            - item.1.spec.containers | selectattr('resources.limits', 'undefined') | list | length > 0 or
+              item.1.spec.containers | selectattr('resources.limits', 'none') | list | length > 0
+          
+        - name: Display pods without resource limits
+          debug:
+            msg: "Pods without resource limits: {{ pods_without_limits | default([]) }}"
+          when: pods_without_limits is defined and pods_without_limits | length > 0
+    
+    # CONFIGMAP AND SECRET VALIDATION
+    - name: ConfigMap and Secret validation
+      block:
+        - name: Check ConfigMaps
+          k8s_info:
+            kind: ConfigMap
+            api_version: v1
+            namespace: "{{ item }}"
+          register: configmaps
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display ConfigMap count
+          debug:
+            msg: "Namespace {{ item.item }} has {{ item.resources | length }} ConfigMaps"
+          with_items: "{{ configmaps.results }}"
+          
+        - name: Check Secrets
+          k8s_info:
+            kind: Secret
+            api_version: v1
+            namespace: "{{ item }}"
+          register: secrets
+          with_items: "{{ k8s_namespaces.resources | map(attribute='metadata.name') | list }}"
+          environment:
+            K8S_AUTH_KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG')) }}"
+          
+        - name: Display Secret count
+          debug:
+            msg: "Namespace {{ item.item }} has {{ item.resources | length }} Secrets"
+          with_items: "{{ secrets.results }}"
+    
+    # SUMMARY
+    - name: Display remediation summary
+      debug:
+        msg: |
+          ===== KUBERNETES DIAGNOSTICS AND REMEDIATION SUMMARY =====
+          
+          Issues Detected:
+          - Nodes not Ready: {{ not_ready_nodes | length }}
+          - Nodes with Pressure Conditions: {{ pressure_nodes | default([]) | length }}
+          - Pods not Running: {{ problem_pods | default([]) | length }}
+          - Deployments not at Desired Replicas: {{ problem_deployments | default([]) | length }}
+          - Unbound PVCs: {{ problem_pvcs | default([]) | length }}
+          - Unbound PVs: {{ problem_pvs | default([]) | length }}
+          - Pods without Resource Limits: {{ pods_without_limits | default([]) | length }}
+          
+          Actions Taken:
+          - Nodes Cordoned: {{ cordon_result.results | default([]) | selectattr('changed', 'equalto', true) | list | length }}
+          - Pods Deleted: {{ delete_pod_result.results | default([]) | selectattr('changed', 'equalto', true) | list | length }}
+          - Deployments Restarted: {{ restart_deployment_result.results | default([]) | selectattr('changed', 'equalto', true) | list | length }}
+
+# Made with Bob

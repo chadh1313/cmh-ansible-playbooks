@@ -1,0 +1,56 @@
+---
+# Variables for Kubernetes diagnostics and remediation playbook
+
+# Authentication settings
+kubeconfig_path: "~/.kube/config"  # Path to kubeconfig file
+become_root: false  # Whether to become root for operations
+
+# Remediation settings
+remediate_nodes: false  # Enable node remediation actions
+remediate_pods: false  # Enable pod remediation actions
+remediate_deployments: false  # Enable deployment remediation actions
+
+# Auto-remediation flags (only take effect if corresponding remediate_* is true)
+auto_cordon_nodes: false  # Automatically cordon problematic nodes
+auto_delete_crashloop_pods: false  # Automatically delete pods in CrashLoopBackOff
+auto_restart_deployments: false  # Automatically restart deployments with replica issues
+
+# Thresholds for alerts and remediation
+pod_restart_threshold: 5  # Number of restarts before flagging a pod
+pod_log_lines: 50  # Number of log lines to retrieve for problematic pods
+include_previous_logs: true  # Whether to include logs from previous container instances
+
+# Control plane checks
+check_kubeadm_certs: false  # Whether to check kubeadm certificate expiration (requires root)
+
+# Resource thresholds
+cpu_usage_threshold: 90  # Percentage
+memory_usage_threshold: 90  # Percentage
+disk_usage_threshold: 85  # Percentage
+
+# Namespaces to focus on (empty means all namespaces)
+target_namespaces: []
+
+# Node selectors for targeted diagnostics (empty means all nodes)
+target_node_selectors: []
+
+# Pod selectors for targeted diagnostics (empty means all pods)
+target_pod_selectors: []
+
+# Certificate expiration thresholds
+cert_expiration_warning_days: 30  # Days before certificate expiration to warn
+cert_expiration_critical_days: 7  # Days before certificate expiration to mark critical
+
+# Network diagnostics settings
+dns_test_domain: "kubernetes.default.svc.cluster.local"  # Domain to test DNS resolution
+network_test_service: "kubernetes.default"  # Service to test network connectivity
+
+# Storage settings
+check_storage_provisioners: true  # Whether to check storage provisioner health
+storage_class_timeout_seconds: 30  # Timeout for storage class operations
+
+# Logging settings
+log_diagnostics: true  # Whether to log diagnostic information
+log_file: "/tmp/k8s_diagnostics.log"  # Path to log file
+
+# Made with Bob
