@@ -1,0 +1,395 @@
+---
+# Playbook to remediate commonly occurring problems on a Linux host
+# This playbook addresses various common issues including:
+# - High CPU usage
+# - Memory issues
+# - Disk space problems
+# - Service failures
+# - Log file management
+# - Network connectivity issues
+# - Zombie processes
+# - Temporary file cleanup
+
+- name: Linux Host Remediation
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yaml
+  
+  tasks:
+    - name: Gather system information
+      block:
+        - name: Check system uptime
+          shell: uptime
+          register: system_uptime
+          changed_when: false
+          
+        - name: Display system uptime
+          debug:
+            var: system_uptime.stdout_lines
+            
+        - name: Check system load
+          shell: cat /proc/loadavg
+          register: system_load
+          changed_when: false
+          
+        - name: Display system load
+          debug:
+            var: system_load.stdout_lines
+    
+    # DISK SPACE REMEDIATION
+    - name: Disk space remediation
+      block:
+        - name: Check disk space
+          shell: df -h
+          register: disk_space
+          changed_when: false
+          
+        - name: Display disk space information
+          debug:
+            var: disk_space.stdout_lines
+            
+        - name: Identify filesystems with high usage
+          shell: df -h | awk '{if (NR!=1 && $5+0>{{ disk_usage_threshold }}) print $5 " " $6}'
+          register: high_usage_filesystems
+          changed_when: false
+          
+        - name: Display filesystems with high usage
+          debug:
+            msg: "High disk usage detected on: {{ high_usage_filesystems.stdout_lines }}"
+          when: high_usage_filesystems.stdout_lines | length > 0
+          
+        - name: Clean package manager cache (apt)
+          shell: apt-get clean
+          when: 
+            - ansible_pkg_mgr == "apt"
+            - high_usage_filesystems.stdout_lines | length > 0
+          register: apt_clean_result
+          
+        - name: Clean package manager cache (yum)
+          shell: yum clean all
+          when: 
+            - ansible_pkg_mgr == "yum"
+            - high_usage_filesystems.stdout_lines | length > 0
+          register: yum_clean_result
+          
+        - name: Clean package manager cache (dnf)
+          shell: dnf clean all
+          when: 
+            - ansible_pkg_mgr == "dnf"
+            - high_usage_filesystems.stdout_lines | length > 0
+          register: dnf_clean_result
+          
+        - name: Find and remove old log files
+          find:
+            paths: "{{ log_paths }}"
+            patterns: "*.log.*,*.gz,*.old,*.bak"
+            age: "{{ log_retention_days }}d"
+            recurse: yes
+          register: old_logs
+          when: high_usage_filesystems.stdout_lines | length > 0
+          
+        - name: Remove old log files
+          file:
+            path: "{{ item.path }}"
+            state: absent
+          with_items: "{{ old_logs.files }}"
+          when: 
+            - high_usage_filesystems.stdout_lines | length > 0
+            - old_logs.matched | default(0) > 0
+          register: removed_logs
+          
+        - name: Find large log files
+          shell: find {{ log_paths | join(' ') }} -type f -name "*.log" -size +{{ log_max_size_mb }}M
+          register: large_logs
+          changed_when: false
+          when: high_usage_filesystems.stdout_lines | length > 0
+          
+        - name: Truncate large log files
+          shell: truncate -s 0 {{ item }}
+          with_items: "{{ large_logs.stdout_lines }}"
+          when: 
+            - high_usage_filesystems.stdout_lines | length > 0
+            - large_logs.stdout_lines | length > 0
+          register: truncated_logs
+          
+        - name: Clean temporary files
+          find:
+            paths: "{{ temp_file_paths }}"
+            age: "{{ temp_file_age_days }}d"
+            recurse: yes
+          register: old_temp_files
+          when: high_usage_filesystems.stdout_lines | length > 0
+          
+        - name: Remove old temporary files
+          file:
+            path: "{{ item.path }}"
+            state: absent
+          with_items: "{{ old_temp_files.files }}"
+          when: 
+            - high_usage_filesystems.stdout_lines | length > 0
+            - old_temp_files.matched | default(0) > 0
+          register: removed_temp_files
+          
+        - name: Display disk cleanup results
+          debug:
+            msg: |
+              Disk cleanup results:
+              - Package cache cleaned: {{ apt_clean_result.changed | default(false) or yum_clean_result.changed | default(false) or dnf_clean_result.changed | default(false) }}
+              - Old logs removed: {{ removed_logs.changed | default(false) }}
+              - Large logs truncated: {{ truncated_logs.changed | default(false) }}
+              - Temporary files removed: {{ removed_temp_files.changed | default(false) }}
+          when: high_usage_filesystems.stdout_lines | length > 0
+    
+    # INODE USAGE REMEDIATION
+    - name: iNode usage remediation
+      block:
+        - name: Check inode usage
+          shell: df -i
+          register: inode_usage
+          changed_when: false
+          
+        - name: Display inode usage information
+          debug:
+            var: inode_usage.stdout_lines
+            
+        - name: Identify filesystems with high inode usage
+          shell: df -i | awk '{if (NR!=1 && $5+0>{{ inode_usage_threshold }}) print $5 " " $6}'
+          register: high_inode_usage
+          changed_when: false
+          
+        - name: Display filesystems with high inode usage
+          debug:
+            msg: "High inode usage detected on: {{ high_inode_usage.stdout_lines }}"
+          when: high_inode_usage.stdout_lines | length > 0
+          
+        - name: Find directories with many small files
+          shell: find / -xdev -type d -exec sh -c 'ls -a "{}" | wc -l' \; -print | sort -nr | head -10
+          register: many_files_dirs
+          changed_when: false
+          when: high_inode_usage.stdout_lines | length > 0
+          
+        - name: Display directories with many small files
+          debug:
+            var: many_files_dirs.stdout_lines
+          when: high_inode_usage.stdout_lines | length > 0
+    
+    # MEMORY USAGE REMEDIATION
+    - name: Memory usage remediation
+      block:
+        - name: Check memory usage
+          shell: free -m
+          register: memory_usage
+          changed_when: false
+          
+        - name: Display memory usage information
+          debug:
+            var: memory_usage.stdout_lines
+            
+        - name: Get top memory consuming processes
+          shell: ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head -10
+          register: top_memory_processes
+          changed_when: false
+          
+        - name: Display top memory consuming processes
+          debug:
+            var: top_memory_processes.stdout_lines
+            
+        - name: Identify memory hog processes
+          shell: ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head -5 | awk '{if ($4 > {{ memory_hog_threshold }}) print $1 " " $4 "% " $3}'
+          register: memory_hog_processes
+          changed_when: false
+          
+        - name: Display memory hog processes
+          debug:
+            msg: "Memory hog processes: {{ memory_hog_processes.stdout_lines }}"
+          when: memory_hog_processes.stdout_lines | length > 0
+            
+        - name: Clear page cache if memory usage is high
+          shell: echo 1 > /proc/sys/vm/drop_caches
+          when: memory_usage.stdout is regex('Mem:.*\s+([0-9]+)\s+([0-9]+)\s+') and (ansible_facts['memory_mb']['real']['used'] / ansible_facts['memory_mb']['real']['total'] * 100) > memory_usage_threshold
+          register: clear_cache_result
+          
+        - name: Display memory cleanup results
+          debug:
+            msg: "Memory cache cleared: {{ clear_cache_result.changed | default(false) }}"
+          when: clear_cache_result.changed | default(false)
+    
+    # CPU USAGE REMEDIATION
+    - name: CPU usage remediation
+      block:
+        - name: Check CPU usage
+          shell: top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}'
+          register: cpu_usage
+          changed_when: false
+          
+        - name: Display CPU usage information
+          debug:
+            msg: "Current CPU usage: {{ cpu_usage.stdout }}%"
+            
+        - name: Get top CPU consuming processes
+          shell: ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -10
+          register: top_cpu_processes
+          changed_when: false
+          
+        - name: Display top CPU consuming processes
+          debug:
+            var: top_cpu_processes.stdout_lines
+            
+        - name: Check for runaway processes
+          shell: ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -5 | awk '{if ($5 > {{ runaway_process_cpu_threshold }}) print $1 " " $5 "% " $3}'
+          register: runaway_processes
+          changed_when: false
+          
+        - name: Display runaway processes
+          debug:
+            msg: "Potential runaway processes: {{ runaway_processes.stdout_lines }}"
+          when: runaway_processes.stdout_lines | length > 0
+    
+    # SERVICE MANAGEMENT
+    - name: Service management
+      block:
+        - name: Check status of critical services
+          service_facts:
+          
+        - name: Display status of critical services
+          debug:
+            msg: "Service {{ item }} status: {{ ansible_facts.services[item + '.service'].state | default('not found') }}"
+          loop: "{{ service_list }}"
+          
+        - name: Restart failed services
+          service:
+            name: "{{ item }}"
+            state: restarted
+          loop: "{{ service_list }}"
+          when: ansible_facts.services[item + '.service'].state is defined and ansible_facts.services[item + '.service'].state != 'running'
+          register: service_restart_result
+          
+        - name: Display service restart results
+          debug:
+            msg: "Services restarted: {{ service_restart_result.results | selectattr('changed', 'equalto', true) | map(attribute='item') | list }}"
+          when: service_restart_result.results | selectattr('changed', 'equalto', true) | list | length > 0
+    
+    # ZOMBIE PROCESS CLEANUP
+    - name: Zombie process cleanup
+      block:
+        - name: Check for zombie processes
+          shell: ps aux | grep -w Z | grep -v grep | wc -l
+          register: zombie_count
+          changed_when: false
+          
+        - name: Display zombie process count
+          debug:
+            msg: "Zombie processes found: {{ zombie_count.stdout }}"
+            
+        - name: Find zombie processes with parent PIDs
+          shell: ps aux | grep -w Z | grep -v grep | awk '{print $2 " " $3}'
+          register: zombie_processes
+          changed_when: false
+          when: zombie_count.stdout | int > 0
+          
+        - name: Display zombie processes with parent PIDs
+          debug:
+            var: zombie_processes.stdout_lines
+          when: zombie_count.stdout | int > 0
+          
+        - name: Send SIGCHLD to parent processes of zombies
+          shell: kill -s SIGCHLD {{ item.split()[1] }}
+          with_items: "{{ zombie_processes.stdout_lines }}"
+          when: zombie_count.stdout | int > max_zombie_threshold
+          register: zombie_cleanup_result
+          ignore_errors: yes
+    
+    # NETWORK CONNECTIVITY CHECK
+    - name: Network connectivity check
+      block:
+        - name: Check network interfaces
+          shell: ip addr
+          register: network_interfaces
+          changed_when: false
+          
+        - name: Display network interfaces
+          debug:
+            var: network_interfaces.stdout_lines
+            
+        - name: Check default gateway
+          shell: ip route | grep default
+          register: default_gateway
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Display default gateway
+          debug:
+            var: default_gateway.stdout_lines
+          when: default_gateway.rc == 0
+          
+        - name: Check DNS resolution
+          shell: cat /etc/resolv.conf
+          register: dns_config
+          changed_when: false
+          
+        - name: Display DNS configuration
+          debug:
+            var: dns_config.stdout_lines
+            
+        - name: Check network connectivity
+          shell: ping -c 3 {{ item }}
+          register: ping_result
+          changed_when: false
+          ignore_errors: yes
+          loop: "{{ network_test_targets }}"
+          
+        - name: Display network connectivity status
+          debug:
+            msg: "Network connectivity to {{ item.item }}: {{ 'OK' if item.rc == 0 else 'FAILED' }}"
+          loop: "{{ ping_result.results }}"
+    
+    # SYSTEM LOGS CHECK
+    - name: System logs check
+      block:
+        - name: Check for errors in system logs
+          shell: grep -i "error\|failed\|critical" /var/log/syslog 2>/dev/null || grep -i "error\|failed\|critical" /var/log/messages 2>/dev/null || echo "No standard system log found"
+          register: system_log_errors
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Display recent system log errors
+          debug:
+            msg: "Recent system log errors found: {{ system_log_errors.stdout_lines | length }}"
+            
+        - name: Check for errors in journal logs
+          shell: journalctl -p err,crit,alert,emerg --since "1 hour ago" | tail -20
+          register: journal_errors
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Display recent journal errors
+          debug:
+            var: journal_errors.stdout_lines
+    
+    # SUMMARY
+    - name: Display remediation summary
+      debug:
+        msg: |
+          ===== LINUX HOST REMEDIATION SUMMARY =====
+          Host: {{ ansible_hostname }}
+          Uptime: {{ system_uptime.stdout }}
+          
+          Disk Space Issues: {{ high_usage_filesystems.stdout_lines | length > 0 }}
+          iNode Issues: {{ high_inode_usage.stdout_lines | length > 0 }}
+          Memory Issues: {{ (ansible_facts['memory_mb']['real']['used'] / ansible_facts['memory_mb']['real']['total'] * 100) > memory_usage_threshold }}
+          CPU Issues: {{ runaway_processes.stdout_lines | length > 0 }}
+          Zombie Processes: {{ zombie_count.stdout | int > 0 }}
+          Network Connectivity: {{ ping_result.results | selectattr('rc', 'equalto', 0) | list | length > 0 }}
+          
+          Actions Taken:
+          - Package cache cleaned: {{ apt_clean_result.changed | default(false) or yum_clean_result.changed | default(false) or dnf_clean_result.changed | default(false) }}
+          - Old logs removed: {{ removed_logs.changed | default(false) }}
+          - Large logs truncated: {{ truncated_logs.changed | default(false) }}
+          - Temporary files removed: {{ removed_temp_files.changed | default(false) }}
+          - Memory cache cleared: {{ clear_cache_result.changed | default(false) }}
+          - Services restarted: {{ service_restart_result.results | default([]) | selectattr('changed', 'equalto', true) | map(attribute='item') | list | length > 0 }}
+          - Zombie processes addressed: {{ zombie_cleanup_result.changed | default(false) }}
+
+# Made with Bob

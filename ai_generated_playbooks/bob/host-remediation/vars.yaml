@@ -1,0 +1,50 @@
+---
+# Variables for host remediation playbook
+
+# Thresholds for remediation actions
+disk_usage_threshold: 85  # Percentage
+memory_usage_threshold: 90  # Percentage
+cpu_usage_threshold: 90  # Percentage
+inode_usage_threshold: 90  # Percentage
+log_max_size_mb: 500  # Maximum size for log files in MB
+
+# Critical services to monitor and auto-restart if needed
+service_list:
+  - sshd
+  - chronyd
+  - systemd-journald
+  - rsyslog
+  - crond
+
+# Log directories to clean up
+log_paths:
+  - /var/log
+  - /var/log/journal
+  - /var/log/audit
+
+# Log retention period in days
+log_retention_days: 30
+
+# Network connectivity test targets
+network_test_targets:
+  - 8.8.8.8
+  - 1.1.1.1
+
+# Maximum allowed zombie processes before remediation
+max_zombie_threshold: 5
+
+# Temporary files cleanup
+temp_file_paths:
+  - /tmp
+  - /var/tmp
+
+# Temp file age in days before cleanup
+temp_file_age_days: 7
+
+# Process CPU usage threshold for identification as runaway process
+runaway_process_cpu_threshold: 95
+
+# Process memory usage threshold for identification as memory hog
+memory_hog_threshold: 80
+
+# Made with Bob
