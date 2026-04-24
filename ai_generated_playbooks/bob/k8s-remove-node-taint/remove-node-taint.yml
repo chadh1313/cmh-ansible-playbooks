@@ -1,0 +1,26 @@
+---
+- name: Remove maintenance taint from Kubernetes node
+  hosts: localhost
+  gather_facts: false
+  
+  vars:
+    node_name: "node-1"
+    taint_key: "maintenance"
+    taint_value: "true"
+    taint_effect: "NoSchedule"
+  
+  tasks:
+    - name: Remove taint from node {{ node_name }}
+      kubernetes.core.k8s_taint:
+        state: absent
+        name: "{{ node_name }}"
+        taints:
+          - key: "{{ taint_key }}"
+            value: "{{ taint_value }}"
+            effect: "{{ taint_effect }}"
+      register: taint_result
+    
+    - name: Display result
+      ansible.builtin.debug:
+        msg: "Taint {{ taint_key }}={{ taint_value }}:{{ taint_effect }} removed from node {{ node_name }}"
+      when: taint_result is changed
