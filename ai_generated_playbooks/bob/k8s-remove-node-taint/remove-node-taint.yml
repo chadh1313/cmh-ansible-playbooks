@@ -1,6 +1,6 @@
 ---
 - name: Remove maintenance taint from Kubernetes node
-  hosts: localhost
+  hosts: all
   gather_facts: false
   
   vars:
